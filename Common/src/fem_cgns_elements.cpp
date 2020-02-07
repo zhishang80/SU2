@@ -2,20 +2,14 @@
  * \file fem_cgns_elements.cpp
  * \brief CGNS element definitions and conversions to the SU2 standard.
  * \author E. van der Weide
- * \version 6.2.0 "Falcon"
+ * \version 7.0.1 "Blackbird"
  *
- * SU2 Original Developers: Dr. Francisco D. Palacios.
- *                          Dr. Thomas D. Economon.
+ * SU2 Project Website: https://su2code.github.io
  *
- * SU2 Developers: Prof. Juan J. Alonso's group at Stanford University.
- *                 Prof. Piero Colonna's group at Delft University of Technology.
- *                 Prof. Nicolas R. Gauger's group at Kaiserslautern University of Technology.
- *                 Prof. Alberto Guardone's group at Polytechnic University of Milan.
- *                 Prof. Rafael Palacios' group at Imperial College London.
- *                 Prof. Edwin van der Weide's group at the University of Twente.
- *                 Prof. Vincent Terrapon's group at the University of Liege.
+ * The SU2 Project is maintained by the SU2 Foundation 
+ * (http://su2foundation.org)
  *
- * Copyright (C) 2012-2017 SU2, the open-source CFD code.
+ * Copyright 2012-2019, SU2 Contributors (cf. AUTHORS.md)
  *
  * SU2 is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -31,9 +25,16 @@
  * License along with SU2. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "../include/geometry_structure.hpp"
-
 #ifdef HAVE_CGNS
+#include "../include/fem_cgns_elements.hpp"
+#include "../include/geometry_structure_fem_part.hpp"
+#include "../include/mpi_structure.hpp"
+#include "../include/datatype_structure.hpp"
+
+#include <cmath>
+#include <climits>
+#include <algorithm>
+
 #if CGNS_VERSION >= 3300
 
 void CCGNSElementType::DetermineMetaData(const unsigned short nDim,
@@ -89,8 +90,15 @@ void CCGNSElementType::ReadBoundaryConnectivityRange(
 
   /* Allocate the memory for the connectivity and read the data. */
   vector<cgsize_t> connCGNSVec(sizeNeeded);
-  if(cg_elements_partial_read(fn, iBase, iZone, connID, iBeg, iEnd,
+  if(elemType == MIXED){
+    vector<cgsize_t> connCGNSOffsetVec(iEnd-iBeg+2);
+    if(cg_poly_elements_partial_read(fn, iBase, iZone, connID, iBeg, iEnd,
+                              connCGNSVec.data(), connCGNSOffsetVec.data(), NULL) != CG_OK)
+      cg_error_exit();
+  } else {
+    if(cg_elements_partial_read(fn, iBase, iZone, connID, iBeg, iEnd,
                               connCGNSVec.data(), NULL) != CG_OK) cg_error_exit();
+  }
 
   /* Define the variables needed to convert the connectivities from CGNS to
      SU2 format. Note that the vectors are needed to support a connectivity
@@ -176,8 +184,16 @@ void CCGNSElementType::ReadConnectivityRange(const int           fn,
 
   /* Allocate the memory for the connectivity and read the data. */
   vector<cgsize_t> connCGNSVec(sizeNeeded);
-  if(cg_elements_partial_read(fn, iBase, iZone, connID, iBeg, iEnd,
+  if (elemType == MIXED) {
+    vector<cgsize_t> connCGNSOffsetVec(iEnd-iBeg+2);
+    if(cg_poly_elements_partial_read(fn, iBase, iZone, connID, iBeg, iEnd,
+                              connCGNSVec.data(), connCGNSOffsetVec.data(), NULL) != CG_OK)
+      cg_error_exit();
+
+  } else {
+    if(cg_elements_partial_read(fn, iBase, iZone, connID, iBeg, iEnd,
                               connCGNSVec.data(), NULL) != CG_OK) cg_error_exit();
+  }
 
   /* Define the variables needed to convert the connectivities from CGNS to
      SU2 format. Note that the vectors are needed to support a connectivity
@@ -296,8 +312,9 @@ unsigned short CCGNSElementType::DetermineElementDimensionMixed(const int fn,
 
   /* Read the data of the first element in this section. */
   vector<cgsize_t> buf(sizeNeeded);
-  if(cg_elements_partial_read(fn, iBase, iZone, connID, indBeg, indBeg,
-                              buf.data(), NULL) != CG_OK) cg_error_exit();
+  vector<cgsize_t> buf_offset(2, 0);
+  if(cg_poly_elements_partial_read(fn, iBase, iZone, connID, indBeg, indBeg,
+                              buf.data(), buf_offset.data(), NULL) != CG_OK) cg_error_exit();
 
   /* The first entry of buf contains the element type. Copy this value
      temporarily into the member variable elemType and determine the
